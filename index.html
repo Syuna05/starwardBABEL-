@@ -11,7 +11,7 @@
     --bg: #0d0f0d;
     --panel: #141814;
     --panel2: #1a1f1a;
-    --panel3: #222922; /* グループ化用の少し明るい背景 */
+    --panel3: #222922;
     --border: #2a332a;
     --border2: #3a453a;
     --accent: #00ee66;
@@ -70,7 +70,6 @@
     padding: 16px;
   }
 
-  /* ツールバー全体のレイアウト調整 */
   .toolbar {
     display: flex;
     gap: 10px;
@@ -79,7 +78,6 @@
     align-items: stretch;
   }
 
-  /* グループごとの枠（カード） */
   .tool-group {
     background: var(--panel2);
     border: 1px solid var(--border2);
@@ -153,7 +151,7 @@
   .toolbar select {
     padding: 0 24px 0 10px;
     outline: none;
-    appearance: none; /* デフォルトの矢印をカスタム */
+    appearance: none;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23c8d8c0' d='M0 0l5 5 5-5z'/></svg>");
     background-repeat: no-repeat;
     background-position: right 8px center;
@@ -221,12 +219,6 @@
     flex-shrink: 0;
   }
 
-  .leg-sq {
-    width: 14px; height: 14px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
   .leg-ln {
     width: 20px;
     height: 3px;
@@ -246,16 +238,25 @@
 
 <header>
   <h1>2v2 Tactical Map</h1>
-  <span>Training STAGE</span>
+  <span id="header-stage-name">Training STAGE</span>
 </header>
 
 <div class="container">
   <div class="toolbar">
     
     <div class="tool-group">
+      <span class="tool-group-label">ステージ</span>
+      <select id="select-stage" onchange="changeStage()">
+        <option value="training">トレーニングステージ</option>
+        <option value="furnace">ファーネスコア</option>
+      </select>
+    </div>
+    
+    <div class="tool-group">
       <span class="tool-group-label">モード</span>
       <button id="btn-move" class="active" onclick="setMode('move')">✋ 移動</button>
       <button id="btn-arrow" onclick="setMode('arrow')">➡ 矢印描画</button>
+      <button id="btn-text" onclick="setMode('text')">📝 メモ配置</button>
       <select id="select-arrow-type" style="display: none;" onchange="changeArrowType()">
         <option value="normal">通常移動（点線）</option>
         <option value="follow">ターゲット追従 (自動判定)</option>
@@ -264,7 +265,7 @@
 
     <div class="tool-group">
       <span class="tool-group-label">表示</span>
-      <button id="btn-toggle-lockcircle" onclick="toggleLockCircle()" title="赤ロック円の表示・非表示">⭕ 赤ロック円: ON</button>
+      <button id="btn-toggle-lockcircle" onclick="toggleLockCircle()" title="赤ロック円の表示切り替え">⭕ 赤ロック円: 選択対象のみ</button>
     </div>
     
     <div class="tool-group">
@@ -291,7 +292,7 @@
 
     <div class="tool-group">
       <span class="tool-group-label">録画</span>
-      <button id="btn-record" onclick="toggleRecord()">🔴 録画 (10s)</button>
+      <button id="btn-record" onclick="toggleRecord()">🔴 録画 (1m)</button>
       <button id="btn-play" onclick="startPlayback()" disabled>▶ 再生</button>
     </div>
 
@@ -310,7 +311,7 @@
   </div>
 </div>
 
-<footer>クリック&ドラッグでキャラ移動 / 矢印モードでターゲット設定</footer>
+<footer>右クリック（または長押し）でメモ単体消去 / 各種モードを活用してください</footer>
 
 <script>
 // ==========================================
@@ -362,7 +363,7 @@ const charaDatabase = {
     { file: "zyem", name: "ジェミィ", redLock: 232, rawValue: 33 },
     { file: "BRS", name: "BRS", redLock: 239, rawValue: 34 },
     { file: "DeadAlive", name: "デッドアライブ", redLock: 232, rawValue: 33 },
-    { file: "DeadMaster", name: "デッドマスター", redLock: 232, rawStyle: 33 }
+    { file: "DeadMaster", name: "デッドマスター", redLock: 232, rawValue: 33 }
   ],
   "20": [
     { file: "fibi", name: "フィービー", redLock: 246, rawValue: 35 },
@@ -403,8 +404,15 @@ const info = document.getElementById('info');
 const selectCost = document.getElementById('select-cost');
 const selectChara = document.getElementById('select-chara');
 const selectArrowType = document.getElementById('select-arrow-type');
+const selectStage = document.getElementById('select-stage');
+const headerStageName = document.getElementById('header-stage-name');
 
 let W, H;
+let currentStage = 'training';
+
+const bgImageFurnace = new Image();
+bgImageFurnace.src = 'image_323a90.jpg';
+bgImageFurnace.onload = function() { draw(); };
 
 function resize() {
   const maxW = Math.min(728, canvas.parentElement.clientWidth - 32);
@@ -420,22 +428,22 @@ let currentArrowType = 'normal';
 let dragging = null, dragOffX = 0, dragOffY = 0;
 let selected = null;
 let arrows = [];
+let notes = [];
 let arrowDrag = null;
 let mouseDown = false;
 
-// 赤ロックサークルの表示フラグ
-let showLockCircle = true;
+// 赤ロック表示状態管理: 'selected' (選択対象のみ), 'all' (全員), 'none' (非表示)
+let lockCircleState = 'selected';
 
-// 履歴管理（Undo / Redo用）
 let undoStack = [];
 let redoStack = [];
 
-// 録画システム
 let isRecording = false;
 let isPlaying = false;
 let recordStartTime = 0;
 let recordTimer = null;
 let recordData = null;
+const MAX_RECORD_TIME = 60000; // 1分（60秒）に変更
 
 const initChars = [
   { id:'A1', label:'A1', role:'グリフィン', nx:0.265, ny:0.667, team:'A', img: null, redLock: 232, rawValue: 33 },
@@ -444,8 +452,6 @@ const initChars = [
   { id:'B2', label:'B2', role:'影',         nx:0.838, ny:0.458, team:'B', img: null, redLock: 190, rawValue: 27 },
 ];
 let chars = initChars.map(c => ({...c}));
-
-// 移動開始前の座標保持
 let moveStartPos = null;
 
 function r() { return W * 0.04; }
@@ -454,19 +460,26 @@ function cy(ch) { return ch.ny * H; }
 
 function createSnapshot() {
   return {
-    chars: chars.map(c => ({
-      id: c.id, label: c.label, role: c.role, nx: c.nx, ny: c.ny, team: c.team,
-      img: c.img, redLock: c.redLock, rawValue: c.rawValue
-    })),
-    arrows: arrows.map(a => ({...a}))
+    stage: currentStage,
+    chars: chars.map(c => ({...c})),
+    arrows: arrows.map(a => ({...a})),
+    notes: notes.map(n => ({...n}))
   };
 }
 
 function restoreSnapshot(snap) {
+  currentStage = snap.stage || 'training';
+  selectStage.value = currentStage;
+  updateHeaderStageName();
+  
   chars = snap.chars.map(c => ({...c}));
   arrows = snap.arrows.map(a => ({...a}));
-  if (selected) {
+  notes = snap.notes ? snap.notes.map(n => ({...n})) : [];
+  
+  if (selected && selected.nx !== undefined) {
     selected = chars.find(c => c.id === selected.id) || null;
+  } else if (selected && selected.text !== undefined) {
+    selected = notes.find(n => n.id === selected.id) || null;
   }
   draw();
   updateUndoRedoButtons();
@@ -490,10 +503,7 @@ function undo() {
   const prev = undoStack.pop();
   restoreSnapshot(prev);
   info.textContent = '1つ前の操作に戻しました。';
-  
-  if (isRecording) {
-    recordData.events.push({ time: Date.now() - recordStartTime, type: 'undo' });
-  }
+  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'undo' });
 }
 
 function redo() {
@@ -503,18 +513,35 @@ function redo() {
   const next = redoStack.pop();
   restoreSnapshot(next);
   info.textContent = '1つ操作を進めました。';
-
-  if (isRecording) {
-    recordData.events.push({ time: Date.now() - recordStartTime, type: 'redo' });
-  }
+  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'redo' });
 }
 
-// 赤ロック円表示トグル
+function changeStage() {
+  if (isPlaying) return;
+  saveState();
+  currentStage = selectStage.value;
+  updateHeaderStageName();
+  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'changeStage', stage: currentStage });
+  info.textContent = `ステージを「${selectStage.options[selectStage.selectedIndex].text}」に切り替えました。`;
+  draw();
+}
+
+function updateHeaderStageName() {
+  headerStageName.textContent = (currentStage === 'furnace') ? 'FURNACE CORE' : 'Training STAGE';
+}
+
 function toggleLockCircle() {
-  showLockCircle = !showLockCircle;
   const btn = document.getElementById('btn-toggle-lockcircle');
-  btn.textContent = showLockCircle ? '⭕ 赤ロック円: ON' : '❌ 赤ロック円: OFF';
-  btn.classList.toggle('active', !showLockCircle);
+  if (lockCircleState === 'selected') {
+    lockCircleState = 'all';
+    btn.textContent = '🌐 赤ロック円: 全員の円を表示';
+  } else if (lockCircleState === 'all') {
+    lockCircleState = 'none';
+    btn.textContent = '❌ 赤ロック円: すべて非表示';
+  } else {
+    lockCircleState = 'selected';
+    btn.textContent = '⭕ 赤ロック円: 選択対象のみ';
+  }
   draw();
 }
 
@@ -523,6 +550,7 @@ function setMode(m) {
   mode = m; selected = null; arrowDrag = null; dragging = null;
   document.getElementById('btn-move').classList.toggle('active', m==='move');
   document.getElementById('btn-arrow').classList.toggle('active', m==='arrow');
+  document.getElementById('btn-text').classList.toggle('active', m==='text');
   
   selectCost.disabled = true;
   selectChara.disabled = true;
@@ -530,24 +558,23 @@ function setMode(m) {
   if (m === 'arrow') {
     selectArrowType.style.display = 'inline-block';
     info.textContent = '矢印モード。キャラクター同士をドラッグすると追従ターゲット線を配置します。';
+  } else if (m === 'text') {
+    selectArrowType.style.display = 'none';
+    info.textContent = 'メモモード。クリックで配置、右クリック（長押し）で削除できます。';
   } else {
     selectArrowType.style.display = 'none';
-    info.textContent = 'キャラクターをクリックして選択し、ドラッグで移動できます。';
+    info.textContent = '移動モード。キャラやメモをドラッグ移動できます。右クリック（長押し）でメモ削除。';
   }
   draw();
 }
 
-function changeArrowType() {
-  currentArrowType = selectArrowType.value;
-}
+function changeArrowType() { currentArrowType = selectArrowType.value; }
 
 function executeClearArrows() {
   if (isPlaying) return;
   saveState();
   arrows = [];
-  if (isRecording) {
-    recordData.events.push({ time: Date.now() - recordStartTime, type: 'clearArrows' });
-  }
+  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'clearArrows' });
   draw();
   info.textContent = '矢印をすべて削除しました。';
 }
@@ -557,23 +584,33 @@ function executeResetPositions() {
   saveState();
   if (isRecording) stopRecord();
   
+  currentStage = 'training';
+  selectStage.value = currentStage;
+  updateHeaderStageName();
+  
   chars = initChars.map(c => ({...c}));
-  arrows = []; selected = null; arrowDrag = null;
+  arrows = []; notes = []; selected = null; arrowDrag = null;
   selectCost.disabled = true;
   selectChara.disabled = true;
   info.textContent = 'リセットしました。';
   draw();
 }
 
-function handleSelection(ch) {
+function handleSelection(item) {
   if (isPlaying) return;
-  if (ch && mode === 'move') {
-    selected = ch;
-    selectCost.disabled = false;
-    selectCost.value = "";
-    selectChara.innerHTML = '<option value="">キャラ選択</option>';
-    selectChara.disabled = true;
-    info.textContent = `${ch.role}を選択（ゲーム内赤ロック値: ${ch.rawValue || '??'}）`;
+  if (item && mode === 'move') {
+    selected = item;
+    if (item.nx !== undefined) {
+      selectCost.disabled = false;
+      selectCost.value = "";
+      selectChara.innerHTML = '<option value="">キャラ選択</option>';
+      selectChara.disabled = true;
+      info.textContent = `${item.role}を選択（ゲーム内赤ロック値: ${item.rawValue || '??'}）`;
+    } else {
+      selectCost.disabled = true;
+      selectChara.disabled = true;
+      info.textContent = `メモ「${item.text}」を選択中。ドラッグ移動、右クリックで消去。`;
+    }
   } else {
     selected = null;
     selectCost.disabled = true;
@@ -585,7 +622,6 @@ function updateCharaList() {
   const cost = selectCost.value;
   selectChara.innerHTML = '<option value="">キャラ選択</option>';
   if (!cost || !charaDatabase[cost]) { selectChara.disabled = true; return; }
-
   charaDatabase[cost].forEach(chara => {
     const opt = document.createElement('option');
     opt.value = `${cost}|${chara.file}|${chara.name}|${chara.redLock}|${chara.rawValue}`;
@@ -597,7 +633,6 @@ function updateCharaList() {
 
 function changeCharacter() {
   if (!selected || !selectChara.value || isPlaying) return;
-  
   saveState();
   const [cost, file, name, redLockStr, rawValueStr] = selectChara.value.split('|');
   const targetRedLock = parseInt(redLockStr, 10);
@@ -615,21 +650,18 @@ function changeCharacter() {
     }
     draw();
   };
-  
   img.onerror = function() {
     selected.img = null; selected.role = name; selected.redLock = targetRedLock; selected.rawValue = targetRawValue;
     info.textContent = `${name}（赤ロック値:${targetRawValue}）をセットしました。`;
     if (isRecording) {
-      recordData.events.push({
-        time: Date.now() - recordStartTime, type: 'changeChara', id: selected.id, role: name, cost: null, file: null, redLock: targetRedLock, rawValue: targetRawValue
-      });
+      recordData.events.push({ time: Date.now() - recordStartTime, type: 'changeChara', id: selected.id, role: name, cost: null, file: null, redLock: targetRedLock, rawValue: targetRawValue });
     }
     draw();
   };
 }
 
 // ==========================================
-// 🔴 録画・▶ 再生 ロジック
+// 🔴 録画・▶ 再生 ロジック (最大1分)
 // ==========================================
 function toggleRecord() {
   if (isPlaying) return;
@@ -639,30 +671,29 @@ function toggleRecord() {
 function startRecord() {
   isRecording = true; selected = null; arrowDrag = null; dragging = null;
   const btn = document.getElementById('btn-record');
-  btn.classList.add('recording'); btn.textContent = '⏹ 停止 (10s)';
+  btn.classList.add('recording'); btn.textContent = '⏹ 録画停止';
   document.getElementById('btn-play').disabled = true;
   updateUndoRedoButtons();
 
   recordData = {
     initial: {
-      chars: chars.map(c => ({
-        id: c.id, label: c.label, role: c.role, nx: c.nx, ny: c.ny, team: c.team,
-        imgSrc: c.img ? c.img.src : null, cost: c.cost || null, file: c.file || null, redLock: c.redLock, rawValue: c.rawValue
-      })),
-      arrows: arrows.map(a => ({...a}))
+      stage: currentStage,
+      chars: chars.map(c => ({...c, imgSrc: c.img ? c.img.src : null})),
+      arrows: arrows.map(a => ({...a})),
+      notes: notes.map(n => ({...n}))
     },
     events: []
   };
   recordStartTime = Date.now();
-  info.textContent = '🔴 録画中...';
-  recordTimer = setTimeout(() => { stopRecord(); }, 10000);
+  info.textContent = '🔴 録画中... (最大1分、いつでも停止できます)';
+  recordTimer = setTimeout(() => { stopRecord(); }, MAX_RECORD_TIME);
 }
 
 function stopRecord() {
   if (!isRecording) return;
   isRecording = false; clearTimeout(recordTimer);
   const btn = document.getElementById('btn-record');
-  btn.classList.remove('recording'); btn.textContent = '🔴 録画 (10s)';
+  btn.classList.remove('recording'); btn.textContent = '🔴 録画 (1m)';
   document.getElementById('btn-play').disabled = false;
   info.textContent = '🔴 録画完了！「▶ 再生」ボタンで再生できます。';
   updateUndoRedoButtons();
@@ -680,9 +711,14 @@ function startPlayback() {
   let playbackUndoStack = [];
   let playbackRedoStack = [];
 
+  currentStage = recordData.initial.stage || 'training';
+  selectStage.value = currentStage;
+  updateHeaderStageName();
+
   arrows = recordData.initial.arrows.map(a => ({...a}));
+  notes = recordData.initial.notes ? recordData.initial.notes.map(n => ({...n})) : [];
   chars = recordData.initial.chars.map(c => {
-    const newChar = { id: c.id, label: c.label, role: c.role, nx: c.nx, ny: c.ny, team: c.team, img: null, redLock: c.redLock, rawValue: c.rawValue };
+    const newChar = { ...c, img: null };
     if (c.imgSrc) {
       const img = new Image(); img.src = c.imgSrc;
       img.onload = () => { newChar.img = img; };
@@ -693,12 +729,10 @@ function startPlayback() {
   const startTime = Date.now();
   let eventIndex = 0;
   const events = recordData.events;
+  const totalDuration = events.length > 0 ? Math.max(...events.map(e => e.time)) + 500 : 1000;
 
   function getPlaybackSnapshot() {
-    return {
-      chars: chars.map(c => ({...c})),
-      arrows: arrows.map(a => ({...a}))
-    };
+    return { stage: currentStage, chars: chars.map(c => ({...c})), arrows: arrows.map(a => ({...a})), notes: notes.map(n => ({...n})) };
   }
 
   function playbackLoop() {
@@ -707,36 +741,44 @@ function startPlayback() {
 
     while (eventIndex < events.length && events[eventIndex].time <= elapsed) {
       const ev = events[eventIndex];
-      
       if (ev.type === 'move') {
         const ch = chars.find(c => c.id === ev.id);
         if (ch) { ch.nx = ev.nx; ch.ny = ev.ny; }
       } 
+      else if (ev.type === 'moveNote') {
+        const nt = notes.find(n => n.id === ev.id);
+        if (nt) { nt.nx = ev.nx; nt.ny = ev.ny; }
+      }
+      else if (ev.type === 'addNote') {
+        notes.push({ id: ev.id, text: ev.text, nx: ev.nx, ny: ev.ny });
+      }
+      else if (ev.type === 'removeNote') {
+        notes = notes.filter(n => n.id !== ev.id);
+      }
+      else if (ev.type === 'changeStage') {
+        currentStage = ev.stage; selectStage.value = currentStage; updateHeaderStageName();
+      }
       else if (ev.type === 'saveState') {
-        playbackUndoStack.push(getPlaybackSnapshot());
-        playbackRedoStack = [];
+        playbackUndoStack.push(getPlaybackSnapshot()); playbackRedoStack = [];
       }
       else if (ev.type === 'undo') {
         if (playbackUndoStack.length > 0) {
           playbackRedoStack.push(getPlaybackSnapshot());
           const prev = playbackUndoStack.pop();
-          chars = prev.chars.map(c => ({...c}));
-          arrows = prev.arrows.map(a => ({...a}));
+          currentStage = prev.stage; selectStage.value = currentStage; updateHeaderStageName();
+          chars = prev.chars.map(c => ({...c})); arrows = prev.arrows.map(a => ({...a})); notes = prev.notes.map(n => ({...n}));
         }
       }
       else if (ev.type === 'redo') {
         if (playbackRedoStack.length > 0) {
           playbackUndoStack.push(getPlaybackSnapshot());
           const next = playbackRedoStack.pop();
-          chars = next.chars.map(c => ({...c}));
-          arrows = next.arrows.map(a => ({...a}));
+          currentStage = next.stage; selectStage.value = currentStage; updateHeaderStageName();
+          chars = next.chars.map(c => ({...c})); arrows = next.arrows.map(a => ({...a})); notes = next.notes.map(n => ({...n}));
         }
       }
       else if (ev.type === 'arrow') {
-        arrows.push({ 
-          x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, 
-          arrowType: ev.arrowType, startCharId: ev.startCharId, endCharId: ev.endCharId, team: ev.team
-        });
+        arrows.push({ x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, arrowType: ev.arrowType, startCharId: ev.startCharId, endCharId: ev.endCharId, team: ev.team });
       } 
       else if (ev.type === 'clearArrows') { arrows = []; }
       else if (ev.type === 'changeChara') {
@@ -752,7 +794,7 @@ function startPlayback() {
       eventIndex++;
     }
     draw();
-    if (elapsed >= 10000) { endPlayback(); } else { requestAnimationFrame(playbackLoop); }
+    if (elapsed >= totalDuration || elapsed >= MAX_RECORD_TIME) { endPlayback(); } else { requestAnimationFrame(playbackLoop); }
   }
   requestAnimationFrame(playbackLoop);
 }
@@ -768,13 +810,23 @@ function endPlayback() {
 }
 
 // ==========================================
-// マウス・タッチイベント
+// マウス・タッチイベント・メモ個別削除機能
 // ==========================================
 function scalePos(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = W / rect.width, sy = H / rect.height;
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  
+  let clientX = e.clientX;
+  let clientY = e.clientY;
+  
+  if (e.touches && e.touches.length > 0) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (e.changedTouches && e.changedTouches.length > 0) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  }
+  
   return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
 }
 
@@ -786,35 +838,119 @@ function getChar(x, y) {
   return null;
 }
 
+function getNote(x, y) {
+  ctx.font = "12px 'Noto Sans JP', sans-serif";
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const n = notes[i];
+    const tw = ctx.measureText(n.text).width + 12;
+    const th = 22;
+    const nx = n.nx * W, ny = n.ny * H;
+    if (x >= nx - tw/2 && x <= nx + tw/2 && y >= ny - th/2 && y <= ny + th/2) return n;
+  }
+  return null;
+}
+
+// メモ個別消去用関数
+function removeNoteItem(nt) {
+  if (!nt || isPlaying) return;
+  saveState();
+  notes = notes.filter(n => n.id !== nt.id);
+  if (selected && selected.id === nt.id) selected = null;
+  if (isRecording) {
+    recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
+    recordData.events.push({ time: Date.now() - recordStartTime, type: 'removeNote', id: nt.id });
+  }
+  info.textContent = `メモ「${nt.text}」を削除しました。`;
+  draw();
+}
+
+// コンテキストメニュー（右クリック）での削除
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (isPlaying || mode === 'arrow') return;
+  const { x, y } = scalePos(e);
+  const nt = getNote(x, y);
+  if (nt) removeNoteItem(nt);
+});
+
 canvas.addEventListener('mousedown', onDown);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, { passive: false });
 canvas.addEventListener('mousemove', onMove);
-canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e); }, { passive: false });
 canvas.addEventListener('mouseup', onUp);
-canvas.addEventListener('touchend', e => { e.preventDefault(); onUp(e); }, { passive: false });
+
+// スマホ用長押し（ロングタップ）判定
+let touchTimer = null;
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length > 1) return;
+  // 通常の下押し処理
+  onDown(e);
+  
+  // 500ミリ秒長押ししたら削除
+  const { x, y } = scalePos(e);
+  const nt = getNote(x, y);
+  if (nt && (mode === 'move' || mode === 'text')) {
+    touchTimer = setTimeout(() => {
+      removeNoteItem(nt);
+      mouseDown = false;
+      dragging = null;
+    }, 6000); // 0.6秒
+  }
+}, { passive: true });
+
+canvas.addEventListener('touchmove', e => {
+  if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+  onMove(e);
+}, { passive: true });
+
+canvas.addEventListener('touchend', e => {
+  if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+  onUp(e);
+}, { passive: true });
 
 let startChar = null;
 
 function onDown(e) {
-  if (isPlaying) return;
+  if (isPlaying || e.button === 2) return; // 右クリック時は通常処理を通さない
   const { x, y } = scalePos(e);
   mouseDown = true;
-  const ch = getChar(x, y);
 
   if (mode === 'move') {
-    handleSelection(ch);
-    if (ch) { 
-      dragging = ch; 
-      dragOffX = x - cx(ch); 
-      dragOffY = y - cy(ch); 
+    const ch = getChar(x, y);
+    const nt = getNote(x, y);
+    
+    if (ch) {
+      handleSelection(ch);
+      dragging = { type: 'char', target: ch };
+      dragOffX = x - cx(ch); dragOffY = y - cy(ch);
       moveStartPos = { nx: ch.nx, ny: ch.ny };
+    } else if (nt) {
+      handleSelection(nt);
+      dragging = { type: 'note', target: nt };
+      dragOffX = x - (nt.nx * W); dragOffY = y - (nt.ny * H);
+      moveStartPos = { nx: nt.nx, ny: nt.ny };
+    } else {
+      handleSelection(null);
     }
     draw();
-  } else {
-    startChar = ch;
-    const arrowTeam = startChar ? startChar.team : 'A'; 
+  } else if (mode === 'arrow') {
+    startChar = getChar(x, y);
+    const arrowTeam = startChar ? startChar.team : 'A';
     arrowDrag = { x1: x, y1: y, x2: x, y2: y, arrowType: currentArrowType, team: arrowTeam };
     draw();
+  } else if (mode === 'text') {
+    mouseDown = false;
+    const text = prompt("配置するメモテキストを入力してください:");
+    if (text && text.trim() !== "") {
+      saveState();
+      const newId = 'N_' + Date.now();
+      const newNote = { id: newId, text: text.trim(), nx: x / W, ny: y / H };
+      notes.push(newNote);
+      if (isRecording) {
+        recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
+        recordData.events.push({ time: Date.now() - recordStartTime, type: 'addNote', id: newId, text: text.trim(), nx: x / W, ny: y / H });
+      }
+      info.textContent = `メモ「${text}」を配置しました。`;
+      draw();
+    }
   }
 }
 
@@ -823,11 +959,15 @@ function onMove(e) {
   const { x, y } = scalePos(e);
 
   if (mode === 'move' && dragging) {
-    const rad = r();
-    dragging.nx = Math.max(rad / W, Math.min(1 - rad / W, (x - dragOffX) / W));
-    dragging.ny = Math.max(rad / H, Math.min(1 - rad / H, (y - dragOffY) / H));
-    if (isRecording) {
-      recordData.events.push({ time: Date.now() - recordStartTime, type: 'move', id: dragging.id, nx: dragging.nx, ny: dragging.ny });
+    if (dragging.type === 'char') {
+      const rad = r();
+      dragging.target.nx = Math.max(rad / W, Math.min(1 - rad / W, (x - dragOffX) / W));
+      dragging.target.ny = Math.max(rad / H, Math.min(1 - rad / H, (y - dragOffY) / H));
+      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'move', id: dragging.target.id, nx: dragging.target.nx, ny: dragging.target.ny });
+    } else if (dragging.type === 'note') {
+      dragging.target.nx = Math.max(0.02, Math.min(0.98, (x - dragOffX) / W));
+      dragging.target.ny = Math.max(0.02, Math.min(0.98, (y - dragOffY) / H));
+      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'moveNote', id: dragging.target.id, nx: dragging.target.nx, ny: dragging.target.ny });
     }
     draw();
   } else if (mode === 'arrow' && arrowDrag) {
@@ -841,12 +981,9 @@ function onUp(e) {
   mouseDown = false;
 
   if (mode === 'move' && dragging) {
-    if (moveStartPos && (moveStartPos.nx !== dragging.nx || moveStartPos.ny !== dragging.ny)) {
-      const snap = createSnapshot();
-      const chInSnap = snap.chars.find(c => c.id === dragging.id);
-      if (chInSnap) { chInSnap.nx = moveStartPos.nx; chInSnap.ny = moveStartPos.ny; }
-      undoStack.push(snap); redoStack = []; updateUndoRedoButtons();
-      if (isRecording) { recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' }); }
+    if (moveStartPos && (moveStartPos.nx !== dragging.target.nx || moveStartPos.ny !== dragging.target.ny)) {
+      saveState();
+      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
     }
     moveStartPos = null;
   }
@@ -863,8 +1000,7 @@ function onUp(e) {
           recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
           recordData.events.push({ time: Date.now() - recordStartTime, type: 'arrow', x1: 0, y1: 0, x2: 0, y2: 0, arrowType: 'follow', startCharId: startChar.id, endCharId: endChar.id, team: startChar.team });
         }
-        const relation = (startChar.team === endChar.team) ? '味方' : '敵';
-        info.textContent = `追従矢印（${startChar.role} ➔ ${endChar.role} 【${relation}】）を配置。`;
+        info.textContent = `追従矢印（${startChar.role} ➔ ${endChar.role}）を配置。`;
       } else {
         if (currentArrowType === 'follow') {
           info.textContent = '追従矢印はキャラクターからキャラクターへドラッグしてください。';
@@ -895,8 +1031,7 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
   let len = Math.hypot(x2 - x1, y2 - y1);
   if (len < 5) return;
 
-  let offsetX = 0;
-  let offsetY = 0;
+  let offsetX = 0, offsetY = 0;
   if (isMutual && arrowType === 'follow' && !preview) {
     const shiftDist = 8;
     offsetX = Math.cos(ang + Math.PI / 2) * shiftDist;
@@ -905,8 +1040,8 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
     x2 += offsetX; y2 += offsetY;
   }
 
-  let startX = x1; let startY = y1;
-  let endX = x2 - Math.cos(ang) * 12; let endY = y2 - Math.sin(ang) * 12;
+  let startX = x1, startY = y1;
+  let endX = x2 - Math.cos(ang) * 12, endY = y2 - Math.sin(ang) * 12;
 
   if (!preview && arrowType === 'follow') {
     const radius = r();
@@ -921,25 +1056,15 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
 
   ctx.save();
   if (isRedLockActive) {
-    ctx.shadowBlur = 20; 
-    ctx.shadowColor = baseColor; 
-    ctx.lineWidth = 10.0;
+    ctx.shadowBlur = 20; ctx.shadowColor = baseColor; ctx.lineWidth = 10.0;
     ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY);
     ctx.strokeStyle = baseColor; ctx.stroke();
-
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.stroke();
+    ctx.lineWidth = 4.5; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
   } else {
     ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY);
     ctx.strokeStyle = preview ? 'rgba(255,255,255,0.5)' : baseColor;
-    if (arrowType === 'normal') {
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([4, 4]);
-    } else {
-      ctx.lineWidth = 3.5;
-      ctx.setLineDash([]);
-    }
+    if (arrowType === 'normal') { ctx.lineWidth = 2.5; ctx.setLineDash([4, 4]); } 
+    else { ctx.lineWidth = 3.5; ctx.setLineDash([]); }
     if (preview) { ctx.setLineDash([6, 4]); }
     ctx.stroke();
   }
@@ -950,23 +1075,13 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
   const headY = y2 - (preview ? Math.sin(ang)*12 : (arrowType === 'follow' ? Math.sin(ang)*(r()+6) : Math.sin(ang)*12));
 
   ctx.save();
-  if (isRedLockActive) { 
-    ctx.shadowBlur = 15; 
-    ctx.shadowColor = baseColor; 
-  }
+  if (isRedLockActive) { ctx.shadowBlur = 15; ctx.shadowColor = baseColor; }
   ctx.beginPath(); ctx.moveTo(headX + Math.cos(ang) * headSize, headY + Math.sin(ang) * headSize);
   ctx.lineTo(headX - Math.cos(ang - 0.45) * (headSize + 2), headY - Math.sin(ang - 0.45) * (headSize + 2));
   ctx.lineTo(headX - Math.cos(ang + 0.45) * (headSize + 2), headY - Math.sin(ang + 0.45) * (headSize + 2));
   ctx.closePath();
-  
-  ctx.fillStyle = preview ? 'rgba(255,255,255,0.5)' : (isRedLockActive ? '#FFFFFF' : baseColor);
-  ctx.fill();
-  
-  if (isRedLockActive) {
-    ctx.strokeStyle = baseColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
+  ctx.fillStyle = preview ? 'rgba(255,255,255,0.5)' : (isRedLockActive ? '#FFFFFF' : baseColor); ctx.fill();
+  if (isRedLockActive) { ctx.strokeStyle = baseColor; ctx.lineWidth = 2; ctx.stroke(); }
   ctx.restore();
 }
 
@@ -976,20 +1091,30 @@ function drawChar(ch) {
   const col  = ch.team === 'A' ? '#3B82F6' : '#EF4444';
   const dark = ch.team === 'A' ? '#1D4ED8' : '#B91C1C';
 
-  if (sel && showLockCircle) {
+  let shouldDrawCircle = false;
+  if (lockCircleState === 'all') {
+    shouldDrawCircle = true;
+  } else if (lockCircleState === 'selected' && sel) {
+    shouldDrawCircle = true;
+  }
+
+  if (shouldDrawCircle) {
     ctx.beginPath(); ctx.arc(x, y, ch.redLock, 0, Math.PI * 2);
-    ctx.strokeStyle = ch.team === 'A' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(239, 68, 68, 0.25)'; 
-    ctx.lineWidth = 2; 
-    ctx.stroke();
-    
+    ctx.strokeStyle = ch.team === 'A' ? 'rgba(59, 130, 246, 0.4)' : 'rgba(239, 68, 68, 0.4)'; 
+    ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  if (sel) {
     ctx.beginPath(); ctx.arc(x, y, rad + 8, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
   }
 
   ctx.beginPath(); ctx.arc(x + 2, y + 2, rad, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fill();
 
-  ctx.save(); ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
+
   if (ch.img) {
     ctx.clip();
     const imgAspect = ch.img.width / ch.img.height;
@@ -1005,7 +1130,8 @@ function drawChar(ch) {
     const fontSize = Math.max(11, rad * 0.6);
     ctx.fillStyle = '#fff'; ctx.font = `bold ${fontSize}px 'Rajdhani', sans-serif`;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 4; ctx.textAlign = 'center';
-    ctx.fillText(ch.label, x, y + fontSize * 0.35); ctx.shadowBlur = 0;
+    ctx.fillText(ch.label, x, y + fontSize * 0.35);
+    ctx.shadowBlur = 0;
   }
 
   ctx.fillStyle = '#ffffff'; ctx.font = `bold ${Math.max(11, rad * 0.42)}px 'Noto Sans JP', sans-serif`;
@@ -1015,42 +1141,72 @@ function drawChar(ch) {
   ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 }
 
+function drawNote(n) {
+  const x = n.nx * W, y = n.ny * H;
+  const sel = selected && selected.id === n.id;
+  
+  ctx.font = "12px 'Noto Sans JP', sans-serif";
+  const tw = ctx.measureText(n.text).width + 12;
+  const th = 22;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 2;
+  
+  ctx.fillStyle = sel ? 'rgba(0, 238, 102, 0.9)' : 'rgba(34, 41, 34, 0.85)';
+  ctx.strokeStyle = sel ? '#ffffff' : '#4a5a4a';
+  ctx.lineWidth = 1.5;
+  rr(x - tw/2, y - th/2, tw, th, 4);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = sel ? '#000000' : '#c8d8c0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(n.text, x, y);
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  const mx = W * 0.044, my = H * 0.063;
-  const mw = W - mx * 2, mh = H - my * 2;
 
-  ctx.fillStyle = '#222'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#808880'; rr(mx, my, mw, mh, 8); ctx.fill();
-  ctx.strokeStyle = '#606660'; ctx.lineWidth = 2; rr(mx, my, mw, mh, 8); ctx.stroke();
+  if (currentStage === 'furnace') {
+    ctx.drawImage(bgImageFurnace, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; ctx.fillRect(0, 0, W, H);
+  } else {
+    const mx = W * 0.044, my = H * 0.063; const mw = W - mx * 2, mh = H - my * 2;
+    ctx.fillStyle = '#222'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#808880'; rr(mx, my, mw, mh, 8); ctx.fill();
+    ctx.strokeStyle = '#606660'; ctx.lineWidth = 2; rr(mx, my, mw, mh, 8); ctx.stroke();
 
-  const gs = W * 0.059;
-  ctx.strokeStyle = 'rgba(0,0,0,0.13)'; ctx.lineWidth = 0.8;
-  for (let x = mx; x <= mx + mw; x += gs) { ctx.beginPath(); ctx.moveTo(x, my); ctx.lineTo(x, my + mh); ctx.stroke(); }
-  for (let y = my; y <= my + mh; y += gs) { ctx.beginPath(); ctx.moveTo(mx, y); ctx.lineTo(mx + mw, y); ctx.stroke(); }
+    const gs = W * 0.059;
+    ctx.strokeStyle = 'rgba(0,0,0,0.13)'; ctx.lineWidth = 0.8;
+    for (let x = mx; x <= mx + mw; x += gs) { ctx.beginPath(); ctx.moveTo(x, my); ctx.lineTo(x, my + mh); ctx.stroke(); }
+    for (let y = my; y <= my + mh; y += gs) { ctx.beginPath(); ctx.moveTo(mx, y); ctx.lineTo(mx + mw, y); ctx.stroke(); }
 
-  const bx = W * 0.206, by = H * 0.667; const bw = W * 0.118, bh = H * 0.167;
-  ctx.fillStyle = '#1a3a6a'; rr(bx, by, bw, bh, 4); ctx.fill();
-  ctx.strokeStyle = '#2060bb'; ctx.lineWidth = 2; rr(bx, by, bw, bh, 4); ctx.stroke();
+    const bx = W * 0.206, by = H * 0.667; const bw = W * 0.118, bh = H * 0.167;
+    ctx.fillStyle = '#1a3a6a'; rr(bx, by, bw, bh, 4); ctx.fill();
+    ctx.strokeStyle = '#2060bb'; ctx.lineWidth = 2; rr(bx, by, bw, bh, 4); ctx.stroke();
 
-  const px = bx + bw * 0.175, py = by + bh * 0.15; const pw = bw * 0.65, ph = bh * 0.7;
-  ctx.fillStyle = '#1a6a30'; rr(px, py, pw, ph, 3); ctx.fill();
-  ctx.strokeStyle = '#00ee66'; ctx.lineWidth = 2.5; rr(px, py, pw, ph, 3); ctx.stroke();
-  ctx.fillStyle = 'rgba(0,255,100,0.35)'; rr(px + pw * 0.15, py + ph * 0.14, pw * 0.7, ph * 0.72, 2); ctx.fill();
+    const px = bx + bw * 0.175, py = by + bh * 0.15; const pw = bw * 0.65, ph = bh * 0.7;
+    ctx.fillStyle = '#1a6a30'; rr(px, py, pw, ph, 3); ctx.fill();
+    ctx.strokeStyle = '#00ee66'; ctx.lineWidth = 2.5; rr(px, py, pw, ph, 3); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,255,100,0.35)'; rr(px + pw * 0.15, py + ph * 0.14, pw * 0.7, ph * 0.72, 2); ctx.fill();
 
-  const rx = W * 0.544, ry = H * 0.167; const rw = W * 0.235, rh = H * 0.271;
-  ctx.fillStyle = '#505a50'; rr(rx, ry, rw, rh, 5); ctx.fill();
-  ctx.strokeStyle = '#404a40'; ctx.lineWidth = 2; rr(rx, ry, rw, rh, 5); ctx.stroke();
+    const rx = W * 0.544, ry = H * 0.167; const rw = W * 0.235, rh = H * 0.271;
+    ctx.fillStyle = '#505a50'; rr(rx, ry, rw, rh, 5); ctx.fill();
+    ctx.strokeStyle = '#404a40'; ctx.lineWidth = 2; rr(rx, ry, rw, rh, 5); ctx.stroke();
 
-  ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.fill();
-  ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.stroke();
+    ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.fill();
+    ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.stroke();
 
-  ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.fill();
-  ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.stroke();
+    ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.fill();
+    ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.stroke();
 
-  ctx.fillStyle = '#4a5a4a'; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.fill();
-  ctx.strokeStyle = '#3a4a3a'; ctx.lineWidth = 1; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.stroke();
+    ctx.fillStyle = '#4a5a4a'; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.fill();
+    ctx.strokeStyle = '#3a4a3a'; ctx.lineWidth = 1; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.stroke();
+  }
 
+  // 矢印
   arrows.forEach(a => {
     if (a.arrowType === 'follow') {
       const sCh = chars.find(c => c.id === a.startCharId);
@@ -1059,13 +1215,7 @@ function draw() {
         const isFriendly = (sCh.team === eCh.team);
         const distance = Math.hypot(cx(sCh) - cx(eCh), cy(sCh) - cy(eCh));
         const inRedLockZone = distance <= (sCh.redLock || 232);
-        
-        const isMutual = arrows.some(other => 
-          other.arrowType === 'follow' && 
-          other.startCharId === a.endCharId && 
-          other.endCharId === a.startCharId
-        );
-
+        const isMutual = arrows.some(other => other.arrowType === 'follow' && other.startCharId === a.endCharId && other.endCharId === a.startCharId);
         drawArrow(cx(sCh), cy(sCh), cx(eCh), cy(eCh), 'follow', false, isFriendly, inRedLockZone, a.team, isMutual);
       }
     } else {
@@ -1073,11 +1223,11 @@ function draw() {
     }
   });
 
-  if (arrowDrag) { 
-    drawArrow(arrowDrag.x1, arrowDrag.y1, arrowDrag.x2, arrowDrag.y2, arrowDrag.arrowType, true, false, false, arrowDrag.team, false); 
-  }
+  if (arrowDrag) { drawArrow(arrowDrag.x1, arrowDrag.y1, arrowDrag.x2, arrowDrag.y2, arrowDrag.arrowType, true, false, false, arrowDrag.team, false); }
 
+  // キャラクターとメモ
   chars.forEach(drawChar);
+  notes.forEach(drawNote);
 }
 
 window.addEventListener('resize', resize);
