@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Starward 2v2</title>
+<title>Starward 2v2 - Route Animator</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
 
@@ -22,6 +22,7 @@
     --teamA-dark: #1D4ED8;
     --teamB: #EF4444;
     --teamB-dark: #B91C1C;
+    --awaken-color: #ffaa00;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -130,22 +131,32 @@
     font-weight: 700;
   }
 
-  .toolbar button:disabled {
+  .toolbar button#btn-awaken:hover:not(:disabled) {
+    border-color: var(--awaken-color);
+    color: var(--awaken-color);
+  }
+  .toolbar button#btn-awaken.awakening {
+    background: linear-gradient(135deg, #ffaa00, #ff5500);
+    border-color: #ffaa00;
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+    animation: pulse-border 1.5s infinite;
+  }
+
+  .toolbar button:disabled, .toolbar select:disabled {
     opacity: 0.25;
     cursor: not-allowed;
     border-color: var(--border2);
   }
 
-  #btn-record { border-color: #ef4444; color: #ef4444; }
-  #btn-record.recording { background: #ef4444; color: #000; font-weight: bold; animation: pulse 1s infinite; }
   #btn-play { border-color: #00ee66; color: #00ee66; }
-  #btn-play:disabled { opacity: 0.3; cursor: not-allowed; border-color: var(--border2); color: var(--text2); }
   #btn-play.playing { background: #00ee66; color: #000; font-weight: bold; }
 
-  @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.6; }
-    100% { opacity: 1; }
+  @keyframes pulse-border {
+    0% { box-shadow: 0 0 4px rgba(255, 170, 0, 0.4); }
+    50% { box-shadow: 0 0 14px rgba(255, 170, 0, 0.8); }
+    100% { box-shadow: 0 0 4px rgba(255, 170, 0, 0.4); }
   }
 
   .toolbar select {
@@ -156,10 +167,47 @@
     background-repeat: no-repeat;
     background-position: right 8px center;
   }
-  
-  .toolbar select:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+
+  /* シークバーエリア用の新スタイル */
+  .seekbar-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-width: 240px;
+  }
+  .seekbar {
+    flex-grow: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--panel3);
+    height: 6px;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .seekbar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+    transition: transform 0.1s;
+  }
+  .seekbar::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+  .time-display {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    min-width: 75px;
+    text-align: right;
   }
 
   canvas {
@@ -254,9 +302,10 @@
     
     <div class="tool-group">
       <span class="tool-group-label">モード</span>
-      <button id="btn-move" class="active" onclick="setMode('move')">✋ 移動</button>
-      <button id="btn-arrow" onclick="setMode('arrow')">➡ 矢印描画</button>
-      <button id="btn-text" onclick="setMode('text')">📝 メモ配置</button>
+      <button id="btn-move" class="active" onclick="setMode('move')">移動</button>
+      <button id="btn-arrow" onclick="setMode('arrow')">➡ 直線矢印</button>
+      <button id="btn-route" onclick="setMode('route')">ルート描画</button>
+      <button id="btn-text" onclick="setMode('text')">メモ配置</button>
       <select id="select-arrow-type" style="display: none;" onchange="changeArrowType()">
         <option value="normal">通常移動（点線）</option>
         <option value="follow">ターゲット追従 (自動判定)</option>
@@ -280,20 +329,29 @@
       <select id="select-chara" onchange="changeCharacter()" disabled>
         <option value="">キャラ選択</option>
       </select>
+      <button id="btn-awaken" onclick="toggleAwaken()" disabled title="選択中のキャラの覚醒状態を切り替えます">覚醒</button>
     </div>
 
     <div class="tool-group">
       <span class="tool-group-label">操作</span>
       <button id="btn-undo" onclick="undo()" disabled title="1つ前に戻る">↩ 戻る</button>
       <button id="btn-redo" onclick="redo()" disabled title="1つ進む">↪ 進む</button>
-      <button onclick="executeClearArrows()">🗑 矢印消去</button>
+      <button onclick="executeClearArrows()">🗑 矢印・ルート消去</button>
       <button onclick="executeResetPositions()">↺ 全リセット</button>
     </div>
 
-    <div class="tool-group">
-      <span class="tool-group-label">録画</span>
-      <button id="btn-record" onclick="toggleRecord()">🔴 録画 (1m)</button>
-      <button id="btn-play" onclick="startPlayback()" disabled>▶ 再生</button>
+    <div class="tool-group" style="flex-grow: 1;">
+      <span class="tool-group-label">タイムライン</span>
+      <select id="select-play-mode">
+        <option value="all">⚡ 一括再生</option>
+        <option value="sequence">⏳ 順番再生</option>
+      </select>
+      <button id="btn-play" onclick="handlePlaybackClick()">▶ 再生</button>
+      
+      <div class="seekbar-container">
+        <input type="range" id="animation-seekbar" class="seekbar" min="0" max="100" value="0" oninput="handleSeek(this.value)">
+        <span id="time-display" class="time-display">0.0s / 0.0s</span>
+      </div>
     </div>
 
   </div>
@@ -306,12 +364,13 @@
     <span class="legend-label">凡例</span>
     <div class="leg"><div class="leg-dot" style="background:#3B82F6;"></div>チームA (青)</div>
     <div class="leg"><div class="leg-dot" style="background:#EF4444;"></div>チームB (赤)</div>
-    <div class="leg"><div class="leg-ln" style="background:#3B82F6; box-shadow: 0 0 12px #3B82F6; border: 2.5px solid #fff; height: 7px;"></div>A赤ロック圏内🔥</div>
-    <div class="leg"><div class="leg-ln" style="background:#EF4444; box-shadow: 0 0 12px #EF4444; border: 2.5px solid #fff; height: 7px;"></div>B赤ロック圏内🔥</div>
+    <div class="leg"><div class="leg-dot" style="background:linear-gradient(135deg, #ffaa00, #ff5500); box-shadow: 0 0 8px #ffaa00;"></div>覚醒状態</div>
+    <div class="leg"><div class="leg-ln" style="background:#3B82F6; box-shadow: 0 0 12px #3B82F6; border: 2.5px solid #fff; height: 7px;"></div>A赤ロック圏内</div>
+    <div class="leg"><div class="leg-ln" style="background:#EF4444; box-shadow: 0 0 12px #EF4444; border: 2.5px solid #fff; height: 7px;"></div>B赤ロック圏内</div>
   </div>
 </div>
 
-<footer>右クリック（または長押し）でメモ単体消去 / 各種モードを活用してください</footer>
+<footer>右クリック（または長押し）でどのモードからでもメモ・矢印・ルートを単体消去できます</footer>
 
 <script>
 // ==========================================
@@ -405,14 +464,21 @@ const selectCost = document.getElementById('select-cost');
 const selectChara = document.getElementById('select-chara');
 const selectArrowType = document.getElementById('select-arrow-type');
 const selectStage = document.getElementById('select-stage');
+const selectPlayMode = document.getElementById('select-play-mode');
 const headerStageName = document.getElementById('header-stage-name');
+const btnAwaken = document.getElementById('btn-awaken');
+
+// シークバー用UI要素
+const seekbar = document.getElementById('animation-seekbar');
+const timeDisplay = document.getElementById('time-display');
 
 let W, H;
 let currentStage = 'training';
 
 const bgImageFurnace = new Image();
 bgImageFurnace.src = 'image_323a90.jpg';
-bgImageFurnace.onload = function() { draw(); };
+bgImageFurnace.onload = function() { if(currentStage === 'furnace') draw(); };
+bgImageFurnace.onerror = function() { console.log("背景画像なし、または読み込みスキップ"); };
 
 function resize() {
   const maxW = Math.min(728, canvas.parentElement.clientWidth - 32);
@@ -432,27 +498,32 @@ let notes = [];
 let arrowDrag = null;
 let mouseDown = false;
 
-// 赤ロック表示状態管理: 'selected' (選択対象のみ), 'all' (全員), 'none' (非表示)
+let activeRoutePoints = null; 
 let lockCircleState = 'selected';
 
 let undoStack = [];
 let redoStack = [];
 
-let isRecording = false;
+// ==========================================
+// 【パワーアップ】アニメーション・シーク制御データ
+// ==========================================
 let isPlaying = false;
-let recordStartTime = 0;
-let recordTimer = null;
-let recordData = null;
-const MAX_RECORD_TIME = 60000; // 1分（60秒）に変更
+let animationFrameId = null;
+let currentProgressFrame = 0; // 現在の再生フレーム位置
+let totalPlaybackFrames = 0;   // ルート全体の総フレーム数
+let playbackTimelineData = []; // フレーム毎の全員の座標を保持するキャッシュ層
 
 const initChars = [
-  { id:'A1', label:'A1', role:'グリフィン', nx:0.265, ny:0.667, team:'A', img: null, redLock: 232, rawValue: 33 },
-  { id:'A2', label:'A2', role:'カゼ',       nx:0.176, ny:0.813, team:'A', img: null, redLock: 246, rawValue: 35 },
-  { id:'B1', label:'B1', role:'エルフィン', nx:0.735, ny:0.313, team:'B', img: null, redLock: 260, rawValue: 37 },
-  { id:'B2', label:'B2', role:'影',         nx:0.838, ny:0.458, team:'B', img: null, redLock: 190, rawValue: 27 },
+  { id:'A1', label:'A1', role:'グリフィン', nx:0.415, ny:0.79, team:'A', img: null, redLock: 232, rawValue: 33, isAwaken: false },
+  { id:'A2', label:'A2', role:'カゼ',       nx:0.565, ny:0.79, team:'A', img: null, redLock: 246, rawValue: 35, isAwaken: false },
+  { id:'B1', label:'B1', role:'エルフィン', nx:0.320, ny:0.21, team:'B', img: null, redLock: 260, rawValue: 37, isAwaken: false },
+  { id:'B2', label:'B2', role:'アリス',         nx:0.455, ny:0.21, team:'B', img: null, redLock: 190, rawValue: 27, isAwaken: false },
 ];
 let chars = initChars.map(c => ({...c}));
 let moveStartPos = null;
+
+// アニメーション開始前のベース（静止状態）のキャラ座標を保存する用
+let baseCharsState = []; 
 
 function r() { return W * 0.04; }
 function cx(ch) { return ch.nx * W; }
@@ -462,7 +533,7 @@ function createSnapshot() {
   return {
     stage: currentStage,
     chars: chars.map(c => ({...c})),
-    arrows: arrows.map(a => ({...a})),
+    arrows: arrows.map(a => ({...a, points: a.points ? a.points.map(p => ({...p})) : null})),
     notes: notes.map(n => ({...n}))
   };
 }
@@ -473,7 +544,7 @@ function restoreSnapshot(snap) {
   updateHeaderStageName();
   
   chars = snap.chars.map(c => ({...c}));
-  arrows = snap.arrows.map(a => ({...a}));
+  arrows = snap.arrows.map(a => ({...a, points: a.points ? a.points.map(p => ({...p})) : null}));
   notes = snap.notes ? snap.notes.map(n => ({...n})) : [];
   
   if (selected && selected.nx !== undefined) {
@@ -481,6 +552,8 @@ function restoreSnapshot(snap) {
   } else if (selected && selected.text !== undefined) {
     selected = notes.find(n => n.id === selected.id) || null;
   }
+  updateAwakenButtonState();
+  resetSeekbar();
   draw();
   updateUndoRedoButtons();
 }
@@ -489,6 +562,7 @@ function saveState() {
   undoStack.push(createSnapshot());
   redoStack = [];
   updateUndoRedoButtons();
+  resetSeekbar();
 }
 
 function updateUndoRedoButtons() {
@@ -496,32 +570,11 @@ function updateUndoRedoButtons() {
   document.getElementById('btn-redo').disabled = (redoStack.length === 0 || isPlaying);
 }
 
-function undo() {
-  if (undoStack.length === 0 || isPlaying) return;
-  const current = createSnapshot();
-  redoStack.push(current);
-  const prev = undoStack.pop();
-  restoreSnapshot(prev);
-  info.textContent = '1つ前の操作に戻しました。';
-  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'undo' });
-}
-
-function redo() {
-  if (redoStack.length === 0 || isPlaying) return;
-  const current = createSnapshot();
-  undoStack.push(current);
-  const next = redoStack.pop();
-  restoreSnapshot(next);
-  info.textContent = '1つ操作を進めました。';
-  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'redo' });
-}
-
 function changeStage() {
   if (isPlaying) return;
-  saveState();
+  if (undoStack.length > 0) saveState();
   currentStage = selectStage.value;
   updateHeaderStageName();
-  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'changeStage', stage: currentStage });
   info.textContent = `ステージを「${selectStage.options[selectStage.selectedIndex].text}」に切り替えました。`;
   draw();
 }
@@ -547,23 +600,29 @@ function toggleLockCircle() {
 
 function setMode(m) {
   if (isPlaying) return;
-  mode = m; selected = null; arrowDrag = null; dragging = null;
+  mode = m; selected = null; arrowDrag = null; dragging = null; activeRoutePoints = null;
   document.getElementById('btn-move').classList.toggle('active', m==='move');
   document.getElementById('btn-arrow').classList.toggle('active', m==='arrow');
+  document.getElementById('btn-route').classList.toggle('active', m==='route');
   document.getElementById('btn-text').classList.toggle('active', m==='text');
   
   selectCost.disabled = true;
   selectChara.disabled = true;
+  btnAwaken.disabled = true;
+  btnAwaken.classList.remove('awakening');
 
   if (m === 'arrow') {
     selectArrowType.style.display = 'inline-block';
-    info.textContent = '矢印モード。キャラクター同士をドラッグすると追従ターゲット線を配置します。';
+    info.textContent = '直線矢印モード。キャラ同士を繋ぐと追従、それ以外は通常点線になります。';
+  } else if (m === 'route') {
+    selectArrowType.style.display = 'none';
+    info.textContent = 'ルート描画モード。キャラクターからドラッグして自由な移動軌跡を描けます。';
   } else if (m === 'text') {
     selectArrowType.style.display = 'none';
     info.textContent = 'メモモード。クリックで配置、右クリック（長押し）で削除できます。';
   } else {
     selectArrowType.style.display = 'none';
-    info.textContent = '移動モード。キャラやメモをドラッグ移動できます。右クリック（長押し）でメモ削除。';
+    info.textContent = '移動モード。キャラやメモをドラッグ移動できます。';
   }
   draw();
 }
@@ -574,24 +633,24 @@ function executeClearArrows() {
   if (isPlaying) return;
   saveState();
   arrows = [];
-  if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'clearArrows' });
+  resetSeekbar();
   draw();
-  info.textContent = '矢印をすべて削除しました。';
+  info.textContent = 'すべての矢印および自由ルートを削除しました。';
 }
 
 function executeResetPositions() {
   if (isPlaying) return;
   saveState();
-  if (isRecording) stopRecord();
-  
   currentStage = 'training';
   selectStage.value = currentStage;
   updateHeaderStageName();
-  
   chars = initChars.map(c => ({...c}));
-  arrows = []; notes = []; selected = null; arrowDrag = null;
+  arrows = []; notes = []; selected = null; arrowDrag = null; activeRoutePoints = null;
   selectCost.disabled = true;
   selectChara.disabled = true;
+  btnAwaken.disabled = true;
+  btnAwaken.classList.remove('awakening');
+  resetSeekbar();
   info.textContent = 'リセットしました。';
   draw();
 }
@@ -605,17 +664,44 @@ function handleSelection(item) {
       selectCost.value = "";
       selectChara.innerHTML = '<option value="">キャラ選択</option>';
       selectChara.disabled = true;
-      info.textContent = `${item.role}を選択（ゲーム内赤ロック値: ${item.rawValue || '??'}）`;
+      btnAwaken.disabled = false;
+      updateAwakenButtonState();
+      info.textContent = `${item.role}を選択（ゲーム内赤ロック値: ${item.rawValue || '??'}）${item.isAwaken ? '【覚醒中】' : ''}`;
     } else {
       selectCost.disabled = true;
       selectChara.disabled = true;
-      info.textContent = `メモ「${item.text}」を選択中。ドラッグ移動、右クリックで消去。`;
+      btnAwaken.disabled = true;
+      btnAwaken.classList.remove('awakening');
+      info.textContent = `メモ「${item.text}」を選択中。`;
     }
   } else {
     selected = null;
     selectCost.disabled = true;
     selectChara.disabled = true;
+    btnAwaken.disabled = true;
+    btnAwaken.classList.remove('awakening');
   }
+}
+
+function updateAwakenButtonState() {
+  if (selected && selected.nx !== undefined) {
+    if (selected.isAwaken) {
+      btnAwaken.classList.add('awakening');
+      btnAwaken.textContent = '覚醒中';
+    } else {
+      btnAwaken.classList.remove('awakening');
+      btnAwaken.textContent = '覚醒';
+    }
+  }
+}
+
+function toggleAwaken() {
+  if (!selected || selected.nx === undefined || isPlaying) return;
+  saveState();
+  selected.isAwaken = !selected.isAwaken;
+  updateAwakenButtonState();
+  info.textContent = `${selected.role}を${selected.isAwaken ? '覚醒状態' : '通常状態'}にしました。`;
+  draw();
 }
 
 function updateCharaList() {
@@ -642,191 +728,233 @@ function changeCharacter() {
   
   img.onload = function() {
     selected.img = img; selected.role = name; selected.redLock = targetRedLock; selected.rawValue = targetRawValue;
-    info.textContent = `${selected.label} を ${name}（赤ロック:${targetRawValue}）に変更しました。`;
-    if (isRecording) {
-      recordData.events.push({
-        time: Date.now() - recordStartTime, type: 'changeChara', id: selected.id, role: name, cost: cost, file: file, redLock: targetRedLock, rawValue: targetRawValue
-      });
-    }
     draw();
   };
   img.onerror = function() {
     selected.img = null; selected.role = name; selected.redLock = targetRedLock; selected.rawValue = targetRawValue;
-    info.textContent = `${name}（赤ロック値:${targetRawValue}）をセットしました。`;
-    if (isRecording) {
-      recordData.events.push({ time: Date.now() - recordStartTime, type: 'changeChara', id: selected.id, role: name, cost: null, file: null, redLock: targetRedLock, rawValue: targetRawValue });
-    }
     draw();
   };
 }
 
 // ==========================================
-// 🔴 録画・▶ 再生 ロジック (最大1分)
+// 【新実装】タイムライン事前計算 ＆ シークバー連動システム
 // ==========================================
-function toggleRecord() {
-  if (isPlaying) return;
-  if (isRecording) stopRecord(); else startRecord();
+function resetSeekbar() {
+  const routeArrows = arrows.filter(a => a.arrowType === 'route' && a.points && a.points.length > 1);
+  if (routeArrows.length === 0) {
+    seekbar.max = 100; seekbar.value = 0; seekbar.disabled = true;
+    timeDisplay.textContent = "0.0s / 0.0s";
+    return;
+  }
+  seekbar.disabled = false;
+  buildPlaybackTimeline();
+  updateSeekbarUI(0);
 }
 
-function startRecord() {
-  isRecording = true; selected = null; arrowDrag = null; dragging = null;
-  const btn = document.getElementById('btn-record');
-  btn.classList.add('recording'); btn.textContent = '⏹ 録画停止';
-  document.getElementById('btn-play').disabled = true;
-  updateUndoRedoButtons();
+// 全てのフレームにおける各キャラクターの位置を予め配列にシミュレート・キャッシュする
+function buildPlaybackTimeline() {
+  const routeArrows = arrows.filter(a => a.arrowType === 'route' && a.points && a.points.length > 1);
+  if (routeArrows.length === 0) return;
 
-  recordData = {
-    initial: {
-      stage: currentStage,
-      chars: chars.map(c => ({...c, imgSrc: c.img ? c.img.src : null})),
-      arrows: arrows.map(a => ({...a})),
-      notes: notes.map(n => ({...n}))
-    },
-    events: []
-  };
-  recordStartTime = Date.now();
-  info.textContent = '🔴 録画中... (最大1分、いつでも停止できます)';
-  recordTimer = setTimeout(() => { stopRecord(); }, MAX_RECORD_TIME);
+  // 再生前の最初の配置位置をベースとしてバックアップ
+  baseCharsState = chars.map(c => ({ id: c.id, nx: c.nx, ny: c.ny }));
+  playbackTimelineData = [];
+
+  const stepsPerSegment = 3; // 1つのドット間を何フレームで移動するか (速度の調整)
+  const playMode = selectPlayMode.value;
+
+  if (playMode === 'all') {
+    // ---- 一括再生モードのタイムライン構築 ----
+    let maxFrames = 0;
+    let tasks = routeArrows.map(a => {
+      const totalF = (a.points.length - 1) * stepsPerSegment;
+      if (totalF > maxFrames) maxFrames = totalF;
+      return { charId: a.startCharId, points: a.points };
+    });
+
+    totalPlaybackFrames = maxFrames;
+
+    for (let f = 0; f <= totalPlaybackFrames; f++) {
+      let frameSnapshot = {};
+      tasks.forEach(t => {
+        const segIndex = Math.floor(f / stepsPerSegment);
+        const subStep = f % stepsPerSegment;
+        
+        if (segIndex >= t.points.length - 1) {
+          // すでに移動終了している場合は終点
+          const lastPt = t.points[t.points.length - 1];
+          frameSnapshot[t.charId] = { nx: lastPt.nx, ny: lastPt.ny };
+        } else {
+          // 補間計算
+          const p1 = t.points[segIndex];
+          const p2 = t.points[segIndex + 1];
+          const ratio = subStep / stepsPerSegment;
+          frameSnapshot[t.charId] = {
+            nx: p1.nx + (p2.nx - p1.nx) * ratio,
+            ny: p1.ny + (p2.ny - p1.ny) * ratio
+          };
+        }
+      });
+      playbackTimelineData.push(frameSnapshot);
+    }
+  } else {
+    // ---- 順番再生モードのタイムライン構築 ----
+    let currentStartFrame = 0;
+    let tasks = routeArrows.map(a => {
+      const framesCount = (a.points.length - 1) * stepsPerSegment;
+      const t = { charId: a.startCharId, points: a.points, startF: currentStartFrame, endF: currentStartFrame + framesCount };
+      currentStartFrame += framesCount;
+      return t;
+    });
+
+    totalPlaybackFrames = currentStartFrame;
+
+    for (let f = 0; f <= totalPlaybackFrames; f++) {
+      let frameSnapshot = {};
+      tasks.forEach(t => {
+        if (f <= t.startF) {
+          // まだ自分の移動番が来ていない場合はスタート地点
+          frameSnapshot[t.charId] = { nx: t.points[0].nx, ny: t.points[0].ny };
+        } else if (f >= t.endF) {
+          // 移動が終わった後はゴール地点に固定
+          const lastPt = t.points[t.points.length - 1];
+          frameSnapshot[t.charId] = { nx: lastPt.nx, ny: lastPt.ny };
+        } else {
+          // 自分が今移動中のフレーム
+          const myFrame = f - t.startF;
+          const segIndex = Math.floor(myFrame / stepsPerSegment);
+          const subStep = myFrame % stepsPerSegment;
+          const p1 = t.points[segIndex];
+          const p2 = t.points[segIndex + 1];
+          const ratio = subStep / stepsPerSegment;
+          frameSnapshot[t.charId] = {
+            nx: p1.nx + (p2.nx - p1.nx) * ratio,
+            ny: p1.ny + (p2.ny - p1.ny) * ratio
+          };
+        }
+      });
+      playbackTimelineData.push(frameSnapshot);
+    }
+  }
+
+  seekbar.max = totalPlaybackFrames;
 }
 
-function stopRecord() {
-  if (!isRecording) return;
-  isRecording = false; clearTimeout(recordTimer);
-  const btn = document.getElementById('btn-record');
-  btn.classList.remove('recording'); btn.textContent = '🔴 録画 (1m)';
-  document.getElementById('btn-play').disabled = false;
-  info.textContent = '🔴 録画完了！「▶ 再生」ボタンで再生できます。';
-  updateUndoRedoButtons();
+function updateSeekbarUI(frame) {
+  seekbar.value = frame;
+  // 1フレームあたりを約0.05秒(60FPS相当の近似)として秒数表記を計算
+  const currentSec = (frame * 0.05).toFixed(1);
+  const totalSec = (totalPlaybackFrames * 0.05).toFixed(1);
+  timeDisplay.textContent = `${currentSec}s / ${totalSec}s`;
+}
+
+// タイムラインを特定フレームの状態に強制適用する
+function applyTimelineFrame(frame) {
+  if (playbackTimelineData.length === 0 || !playbackTimelineData[frame]) return;
+  const snapshot = playbackTimelineData[frame];
+  
+  chars.forEach(c => {
+    if (snapshot[c.id]) {
+      c.nx = snapshot[c.id].nx;
+      c.ny = snapshot[c.id].ny;
+    } else {
+      // ルートが描かれていないキャラは、再生開始前の元の位置に維持
+      const base = baseCharsState.find(b => b.id === c.id);
+      if (base) { c.nx = base.nx; c.ny = base.ny; }
+    }
+  });
+}
+
+// ユーザーが手動でシークバーを動かしたときの処理
+function handleSeek(value) {
+  if (isPlaying) endPlayback(); // シークされたら再生は一旦停止
+  
+  if (playbackTimelineData.length === 0) {
+    buildPlaybackTimeline();
+  }
+  
+  currentProgressFrame = parseInt(value, 10);
+  applyTimelineFrame(currentProgressFrame);
+  updateSeekbarUI(currentProgressFrame);
+  draw();
+}
+
+function handlePlaybackClick() {
+  if (isPlaying) {
+    endPlayback();
+  } else {
+    startPlayback();
+  }
 }
 
 function startPlayback() {
-  if (isRecording || isPlaying || !recordData) return;
-  isPlaying = true; selected = null;
-  updateUndoRedoButtons();
+  const routeArrows = arrows.filter(a => a.arrowType === 'route' && a.points && a.points.length > 1);
+  if (routeArrows.length === 0) {
+    info.textContent = '再生する自由ルートがありません。「ルート描画」でルートを描いてください。';
+    return;
+  }
+
+  isPlaying = true;
+  selected = null;
+  
+  // 再生中は誤動作を防ぐため、再生モード選択のみロック
+  selectPlayMode.disabled = true;
   
   const playBtn = document.getElementById('btn-play');
-  playBtn.classList.add('playing'); playBtn.textContent = '⏸ 再生中';
-  document.getElementById('btn-record').disabled = true;
+  playBtn.classList.add('playing');
+  playBtn.textContent = '⏹ 停止';
 
-  let playbackUndoStack = [];
-  let playbackRedoStack = [];
-
-  currentStage = recordData.initial.stage || 'training';
-  selectStage.value = currentStage;
-  updateHeaderStageName();
-
-  arrows = recordData.initial.arrows.map(a => ({...a}));
-  notes = recordData.initial.notes ? recordData.initial.notes.map(n => ({...n})) : [];
-  chars = recordData.initial.chars.map(c => {
-    const newChar = { ...c, img: null };
-    if (c.imgSrc) {
-      const img = new Image(); img.src = c.imgSrc;
-      img.onload = () => { newChar.img = img; };
-    }
-    return newChar;
-  });
-
-  const startTime = Date.now();
-  let eventIndex = 0;
-  const events = recordData.events;
-  const totalDuration = events.length > 0 ? Math.max(...events.map(e => e.time)) + 500 : 1000;
-
-  function getPlaybackSnapshot() {
-    return { stage: currentStage, chars: chars.map(c => ({...c})), arrows: arrows.map(a => ({...a})), notes: notes.map(n => ({...n})) };
+  // もしシークバーが最後までいっている状態で再生を押したら最初から巻き戻す
+  if (currentProgressFrame >= totalPlaybackFrames) {
+    currentProgressFrame = 0;
   }
 
-  function playbackLoop() {
+  buildPlaybackTimeline();
+  info.textContent = 'ルート移動アニメーションを再生中...';
+
+  function animLoop() {
     if (!isPlaying) return;
-    const elapsed = Date.now() - startTime;
 
-    while (eventIndex < events.length && events[eventIndex].time <= elapsed) {
-      const ev = events[eventIndex];
-      if (ev.type === 'move') {
-        const ch = chars.find(c => c.id === ev.id);
-        if (ch) { ch.nx = ev.nx; ch.ny = ev.ny; }
-      } 
-      else if (ev.type === 'moveNote') {
-        const nt = notes.find(n => n.id === ev.id);
-        if (nt) { nt.nx = ev.nx; nt.ny = ev.ny; }
-      }
-      else if (ev.type === 'addNote') {
-        notes.push({ id: ev.id, text: ev.text, nx: ev.nx, ny: ev.ny });
-      }
-      else if (ev.type === 'removeNote') {
-        notes = notes.filter(n => n.id !== ev.id);
-      }
-      else if (ev.type === 'changeStage') {
-        currentStage = ev.stage; selectStage.value = currentStage; updateHeaderStageName();
-      }
-      else if (ev.type === 'saveState') {
-        playbackUndoStack.push(getPlaybackSnapshot()); playbackRedoStack = [];
-      }
-      else if (ev.type === 'undo') {
-        if (playbackUndoStack.length > 0) {
-          playbackRedoStack.push(getPlaybackSnapshot());
-          const prev = playbackUndoStack.pop();
-          currentStage = prev.stage; selectStage.value = currentStage; updateHeaderStageName();
-          chars = prev.chars.map(c => ({...c})); arrows = prev.arrows.map(a => ({...a})); notes = prev.notes.map(n => ({...n}));
-        }
-      }
-      else if (ev.type === 'redo') {
-        if (playbackRedoStack.length > 0) {
-          playbackUndoStack.push(getPlaybackSnapshot());
-          const next = playbackRedoStack.pop();
-          currentStage = next.stage; selectStage.value = currentStage; updateHeaderStageName();
-          chars = next.chars.map(c => ({...c})); arrows = next.arrows.map(a => ({...a})); notes = next.notes.map(n => ({...n}));
-        }
-      }
-      else if (ev.type === 'arrow') {
-        arrows.push({ x1: ev.x1, y1: ev.y1, x2: ev.x2, y2: ev.y2, arrowType: ev.arrowType, startCharId: ev.startCharId, endCharId: ev.endCharId, team: ev.team });
-      } 
-      else if (ev.type === 'clearArrows') { arrows = []; }
-      else if (ev.type === 'changeChara') {
-        const ch = chars.find(c => c.id === ev.id);
-        if (ch) {
-          ch.role = ev.role; ch.redLock = ev.redLock; ch.rawValue = ev.rawValue;
-          if (ev.file) {
-            const img = new Image(); img.src = `img/${ev.cost}/${ev.file}.png`;
-            img.onload = () => { ch.img = img; };
-          } else { ch.img = null; }
-        }
-      }
-      eventIndex++;
+    if (currentProgressFrame <= totalPlaybackFrames) {
+      applyTimelineFrame(currentProgressFrame);
+      updateSeekbarUI(currentProgressFrame);
+      draw();
+      currentProgressFrame++;
+      animationFrameId = requestAnimationFrame(animLoop);
+    } else {
+      info.textContent = '再生が完了しました。';
+      endPlayback();
     }
-    draw();
-    if (elapsed >= totalDuration || elapsed >= MAX_RECORD_TIME) { endPlayback(); } else { requestAnimationFrame(playbackLoop); }
   }
-  requestAnimationFrame(playbackLoop);
+  animationFrameId = requestAnimationFrame(animLoop);
 }
 
 function endPlayback() {
   isPlaying = false;
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  selectPlayMode.disabled = false;
   const playBtn = document.getElementById('btn-play');
-  playBtn.classList.remove('playing'); playBtn.textContent = '▶ 再生';
-  document.getElementById('btn-record').disabled = false;
-  info.textContent = '▶ 再生が終了しました。';
-  updateUndoRedoButtons();
+  playBtn.classList.remove('playing');
+  playBtn.textContent = '▶ 再生';
   draw();
 }
 
 // ==========================================
-// マウス・タッチイベント・メモ個別削除機能
+// マウス・タッチイベント・個別削除機能
 // ==========================================
 function scalePos(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = W / rect.width, sy = H / rect.height;
-  
-  let clientX = e.clientX;
-  let clientY = e.clientY;
+  let clientX = e.clientX, clientY = e.clientY;
   
   if (e.touches && e.touches.length > 0) {
-    clientX = e.touches[0].clientX;
-    clientY = e.touches[0].clientY;
+    clientX = e.touches[0].clientX; clientY = e.touches[0].clientY;
   } else if (e.changedTouches && e.changedTouches.length > 0) {
-    clientX = e.changedTouches[0].clientX;
-    clientY = e.changedTouches[0].clientY;
+    clientX = e.changedTouches[0].clientX; clientY = e.changedTouches[0].clientY;
   }
-  
   return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
 }
 
@@ -850,49 +978,77 @@ function getNote(x, y) {
   return null;
 }
 
-// メモ個別消去用関数
-function removeNoteItem(nt) {
-  if (!nt || isPlaying) return;
-  saveState();
-  notes = notes.filter(n => n.id !== nt.id);
-  if (selected && selected.id === nt.id) selected = null;
-  if (isRecording) {
-    recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
-    recordData.events.push({ time: Date.now() - recordStartTime, type: 'removeNote', id: nt.id });
+function getArrow(x, y) {
+  const threshold = 14; 
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const a = arrows[i];
+    if (a.arrowType === 'route' && a.points) {
+      for (let j = 0; j < a.points.length - 1; j++) {
+        const x1 = a.points[j].nx * W, y1 = a.points[j].ny * H;
+        const x2 = a.points[j+1].nx * W, y2 = a.points[j+1].ny * H;
+        if (distToSegment(x, y, x1, y1, x2, y2) < threshold) return a;
+      }
+      continue;
+    }
+    let x1, y1, x2, y2;
+    if (a.arrowType === 'follow') {
+      const sCh = chars.find(c => c.id === a.startCharId);
+      const eCh = chars.find(c => c.id === a.endCharId);
+      if (!sCh || !eCh) continue;
+      x1 = cx(sCh); y1 = cy(sCh); x2 = cx(eCh); y2 = cy(eCh);
+    } else {
+      x1 = a.x1; y1 = a.y1; x2 = a.x2; y2 = a.y2;
+    }
+    if (distToSegment(x, y, x1, y1, x2, y2) < threshold) return a;
   }
-  info.textContent = `メモ「${nt.text}」を削除しました。`;
-  draw();
+  return null;
 }
 
-// コンテキストメニュー（右クリック）での削除
+function distToSegment(x, y, x1, y1, x2, y2) {
+  const A = x - x1, B = y - y1, C = x2 - x1, D = y2 - y1;
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+  if (lenSq !== 0) param = dot / lenSq;
+  let xx, yy;
+  if (param < 0) { xx = x1; yy = y1; }
+  else if (param > 1) { xx = x2; yy = y2; }
+  else { xx = x1 + param * C; yy = y1 + param * D; }
+  return Math.hypot(x - xx, y - yy);
+}
+
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
-  if (isPlaying || mode === 'arrow') return;
+  if (isPlaying) return;
   const { x, y } = scalePos(e);
+  
   const nt = getNote(x, y);
-  if (nt) removeNoteItem(nt);
+  if (nt) { saveState(); notes = notes.filter(n => n.id !== nt.id); if (selected === nt) selected = null; draw(); return; }
+  
+  const arr = getArrow(x, y);
+  if (arr) { saveState(); arrows = arrows.filter(a => a !== arr); resetSeekbar(); draw(); return; }
 });
 
 canvas.addEventListener('mousedown', onDown);
 canvas.addEventListener('mousemove', onMove);
 canvas.addEventListener('mouseup', onUp);
 
-// スマホ用長押し（ロングタップ）判定
 let touchTimer = null;
 canvas.addEventListener('touchstart', e => {
   if (e.touches.length > 1) return;
-  // 通常の下押し処理
   onDown(e);
-  
-  // 500ミリ秒長押ししたら削除
   const { x, y } = scalePos(e);
   const nt = getNote(x, y);
-  if (nt && (mode === 'move' || mode === 'text')) {
+  const arr = getArrow(x, y);
+  if (nt || arr) {
     touchTimer = setTimeout(() => {
-      removeNoteItem(nt);
-      mouseDown = false;
-      dragging = null;
-    }, 6000); // 0.6秒
+      saveState();
+      if (nt) notes = notes.filter(n => n.id !== nt.id);
+      else if (arr) arrows = arrows.filter(a => a !== arr);
+      mouseDown = false; dragging = null; arrowDrag = null; activeRoutePoints = null;
+      resetSeekbar();
+      draw();
+    }, 600);
   }
 }, { passive: true });
 
@@ -909,46 +1065,54 @@ canvas.addEventListener('touchend', e => {
 let startChar = null;
 
 function onDown(e) {
-  if (isPlaying || e.button === 2) return; // 右クリック時は通常処理を通さない
+  if (isPlaying || e.button === 2) return;
   const { x, y } = scalePos(e);
   mouseDown = true;
 
   if (mode === 'move') {
+    // もしタイムラインが途中の状態でコマを動かしたら、シーク位置をゼロに戻す
+    if (currentProgressFrame > 0) {
+      currentProgressFrame = 0;
+      resetSeekbar();
+    }
+
     const ch = getChar(x, y);
     const nt = getNote(x, y);
-    
     if (ch) {
-      handleSelection(ch);
-      dragging = { type: 'char', target: ch };
-      dragOffX = x - cx(ch); dragOffY = y - cy(ch);
-      moveStartPos = { nx: ch.nx, ny: ch.ny };
+      handleSelection(ch); dragging = { type: 'char', target: ch };
+      dragOffX = x - cx(ch); dragOffY = y - cy(ch); moveStartPos = { nx: ch.nx, ny: ch.ny };
     } else if (nt) {
-      handleSelection(nt);
-      dragging = { type: 'note', target: nt };
-      dragOffX = x - (nt.nx * W); dragOffY = y - (nt.ny * H);
-      moveStartPos = { nx: nt.nx, ny: nt.ny };
-    } else {
-      handleSelection(null);
-    }
+      handleSelection(nt); dragging = { type: 'note', target: nt };
+      dragOffX = x - (nt.nx * W); dragOffY = y - (nt.ny * H); moveStartPos = { nx: nt.nx, ny: nt.ny };
+    } else { handleSelection(null); }
     draw();
-  } else if (mode === 'arrow') {
+  } 
+  else if (mode === 'arrow') {
     startChar = getChar(x, y);
     const arrowTeam = startChar ? startChar.team : 'A';
     arrowDrag = { x1: x, y1: y, x2: x, y2: y, arrowType: currentArrowType, team: arrowTeam };
     draw();
-  } else if (mode === 'text') {
+  } 
+  else if (mode === 'route') {
+    if (currentProgressFrame > 0) {
+      currentProgressFrame = 0;
+      resetSeekbar();
+    }
+    startChar = getChar(x, y);
+    if (startChar) {
+      activeRoutePoints = [{ nx: startChar.nx, ny: startChar.ny }];
+      info.textContent = `${startChar.role} の移動ルートを描画中...`;
+    } else {
+      mouseDown = false;
+      info.textContent = 'ルート描画モード：キャラクターの上からドラッグを開始してください。';
+    }
+  }
+  else if (mode === 'text') {
     mouseDown = false;
     const text = prompt("配置するメモテキストを入力してください:");
     if (text && text.trim() !== "") {
       saveState();
-      const newId = 'N_' + Date.now();
-      const newNote = { id: newId, text: text.trim(), nx: x / W, ny: y / H };
-      notes.push(newNote);
-      if (isRecording) {
-        recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
-        recordData.events.push({ time: Date.now() - recordStartTime, type: 'addNote', id: newId, text: text.trim(), nx: x / W, ny: y / H });
-      }
-      info.textContent = `メモ「${text}」を配置しました。`;
+      notes.push({ id: 'N_' + Date.now(), text: text.trim(), nx: x / W, ny: y / H });
       draw();
     }
   }
@@ -963,16 +1127,23 @@ function onMove(e) {
       const rad = r();
       dragging.target.nx = Math.max(rad / W, Math.min(1 - rad / W, (x - dragOffX) / W));
       dragging.target.ny = Math.max(rad / H, Math.min(1 - rad / H, (y - dragOffY) / H));
-      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'move', id: dragging.target.id, nx: dragging.target.nx, ny: dragging.target.ny });
     } else if (dragging.type === 'note') {
       dragging.target.nx = Math.max(0.02, Math.min(0.98, (x - dragOffX) / W));
       dragging.target.ny = Math.max(0.02, Math.min(0.98, (y - dragOffY) / H));
-      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'moveNote', id: dragging.target.id, nx: dragging.target.nx, ny: dragging.target.ny });
     }
     draw();
-  } else if (mode === 'arrow' && arrowDrag) {
+  } 
+  else if (mode === 'arrow' && arrowDrag) {
     arrowDrag.x2 = x; arrowDrag.y2 = y;
     draw();
+  } 
+  else if (mode === 'route' && activeRoutePoints && startChar) {
+    const lastPt = activeRoutePoints[activeRoutePoints.length - 1];
+    const curNx = x / W, curNy = y / H;
+    if (Math.hypot((curNx - lastPt.nx)*W, (curNy - lastPt.ny)*H) > 6) {
+      activeRoutePoints.push({ nx: curNx, ny: curNy });
+      draw();
+    }
   }
 }
 
@@ -983,40 +1154,39 @@ function onUp(e) {
   if (mode === 'move' && dragging) {
     if (moveStartPos && (moveStartPos.nx !== dragging.target.nx || moveStartPos.ny !== dragging.target.ny)) {
       saveState();
-      if (isRecording) recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
     }
     moveStartPos = null;
   }
 
   if (mode === 'arrow' && arrowDrag) {
-    const dx = arrowDrag.x2 - arrowDrag.x1;
-    const dy = arrowDrag.y2 - arrowDrag.y1;
+    const dx = arrowDrag.x2 - arrowDrag.x1, dy = arrowDrag.y2 - arrowDrag.y1;
     if (Math.hypot(dx, dy) > 12) {
       const endChar = getChar(arrowDrag.x2, arrowDrag.y2);
       if (currentArrowType === 'follow' && startChar && endChar && startChar.id !== endChar.id) {
         saveState();
         arrows.push({ x1: 0, y1: 0, x2: 0, y2: 0, arrowType: 'follow', startCharId: startChar.id, endCharId: endChar.id, team: startChar.team });
-        if (isRecording) {
-          recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
-          recordData.events.push({ time: Date.now() - recordStartTime, type: 'arrow', x1: 0, y1: 0, x2: 0, y2: 0, arrowType: 'follow', startCharId: startChar.id, endCharId: endChar.id, team: startChar.team });
-        }
-        info.textContent = `追従矢印（${startChar.role} ➔ ${endChar.role}）を配置。`;
       } else {
-        if (currentArrowType === 'follow') {
-          info.textContent = '追従矢印はキャラクターからキャラクターへドラッグしてください。';
-        } else {
-          saveState();
-          const determinedTeam = startChar ? startChar.team : 'A';
-          arrows.push({ ...arrowDrag, team: determinedTeam });
-          if (isRecording) {
-            recordData.events.push({ time: Date.now() - recordStartTime, type: 'saveState' });
-            recordData.events.push({ time: Date.now() - recordStartTime, type: 'arrow', x1: arrowDrag.x1, y1: arrowDrag.y1, x2: arrowDrag.x2, y2: arrowDrag.y2, arrowType: arrowDrag.arrowType, team: determinedTeam });
-          }
-          info.textContent = '通常移動用の矢印を追加しました。';
-        }
+        saveState();
+        arrows.push({ ...arrowDrag, team: startChar ? startChar.team : 'A' });
       }
+      resetSeekbar();
     }
     arrowDrag = null; startChar = null; draw();
+  }
+
+  if (mode === 'route' && activeRoutePoints && startChar) {
+    if (activeRoutePoints.length > 2) {
+      saveState();
+      arrows.push({
+        arrowType: 'route',
+        startCharId: startChar.id,
+        team: startChar.team,
+        points: activeRoutePoints
+      });
+      info.textContent = `${startChar.role} のオリジナル移動ルートを保存しました。`;
+      resetSeekbar();
+    }
+    activeRoutePoints = null; startChar = null; draw();
   }
   dragging = null;
 }
@@ -1036,8 +1206,7 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
     const shiftDist = 8;
     offsetX = Math.cos(ang + Math.PI / 2) * shiftDist;
     offsetY = Math.sin(ang + Math.PI / 2) * shiftDist;
-    x1 += offsetX; y1 += offsetY;
-    x2 += offsetX; y2 += offsetY;
+    x1 += offsetX; y1 += offsetY; x2 += offsetX; y2 += offsetY;
   }
 
   let startX = x1, startY = y1;
@@ -1081,7 +1250,40 @@ function drawArrow(x1, y1, x2, y2, arrowType, preview, isTargetFriendly, inRedLo
   ctx.lineTo(headX - Math.cos(ang + 0.45) * (headSize + 2), headY - Math.sin(ang + 0.45) * (headSize + 2));
   ctx.closePath();
   ctx.fillStyle = preview ? 'rgba(255,255,255,0.5)' : (isRedLockActive ? '#FFFFFF' : baseColor); ctx.fill();
-  if (isRedLockActive) { ctx.strokeStyle = baseColor; ctx.lineWidth = 2; ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawRoute(points, team) {
+  if (!points || points.length < 2) return;
+  let baseColor = (team === 'A') ? '#3B82F6' : '#EF4444';
+
+  ctx.save();
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = baseColor;
+  ctx.setLineDash([2, 4]);
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].nx * W, points[0].ny * H);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].nx * W, points[i].ny * H);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  const pLast = points[points.length - 1];
+  const pPrev = points[points.length - 2];
+  const lx = pLast.nx * W, ly = pLast.ny * H;
+  const px = pPrev.nx * W, py = pPrev.ny * H;
+  let ang = Math.atan2(ly - py, lx - px);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(lx, ly);
+  ctx.lineTo(lx - Math.cos(ang - 0.45) * 14, ly - Math.sin(ang - 0.45) * 14);
+  ctx.lineTo(lx - Math.cos(ang + 0.45) * 14, ly - Math.sin(ang + 0.45) * 14);
+  ctx.closePath();
+  ctx.fillStyle = baseColor;
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1091,13 +1293,7 @@ function drawChar(ch) {
   const col  = ch.team === 'A' ? '#3B82F6' : '#EF4444';
   const dark = ch.team === 'A' ? '#1D4ED8' : '#B91C1C';
 
-  let shouldDrawCircle = false;
-  if (lockCircleState === 'all') {
-    shouldDrawCircle = true;
-  } else if (lockCircleState === 'selected' && sel) {
-    shouldDrawCircle = true;
-  }
-
+  let shouldDrawCircle = (lockCircleState === 'all' || (lockCircleState === 'selected' && sel));
   if (shouldDrawCircle) {
     ctx.beginPath(); ctx.arc(x, y, ch.redLock, 0, Math.PI * 2);
     ctx.strokeStyle = ch.team === 'A' ? 'rgba(59, 130, 246, 0.4)' : 'rgba(239, 68, 68, 0.4)'; 
@@ -1109,60 +1305,87 @@ function drawChar(ch) {
     ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
   }
 
-  ctx.beginPath(); ctx.arc(x + 2, y + 2, rad, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2, y + 2, rad, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fill();
+
+  if (ch.isAwaken) {
+    ctx.save();
+    ctx.shadowColor = '#ff5500';
+    ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.arc(x, y, rad + 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffaa00'; ctx.fill();
+    
+    ctx.shadowColor = '#ffff00';
+    ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(x, y, rad + 1, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.restore();
+  }
 
   ctx.save();
   ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
-
   if (ch.img) {
     ctx.clip();
     const imgAspect = ch.img.width / ch.img.height;
-    let drawW = rad * 2; let drawH = rad * 2;
+    let drawW = rad * 2, drawH = rad * 2;
     if (imgAspect > 1) { drawW = rad * 2 * imgAspect; } else { drawH = (rad * 2) / imgAspect; }
     ctx.drawImage(ch.img, x - drawW / 2, y - drawH / 2, drawW, drawH);
   }
   ctx.restore();
 
-  ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.strokeStyle = dark; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); 
+  ctx.strokeStyle = ch.isAwaken ? '#ffcc00' : dark; 
+  ctx.lineWidth = ch.isAwaken ? 3.5 : 2.5; 
+  ctx.stroke();
 
   if (!ch.img || sel) {
     const fontSize = Math.max(11, rad * 0.6);
     ctx.fillStyle = '#fff'; ctx.font = `bold ${fontSize}px 'Rajdhani', sans-serif`;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 4; ctx.textAlign = 'center';
     ctx.fillText(ch.label, x, y + fontSize * 0.35);
-    ctx.shadowBlur = 0;
   }
 
   ctx.fillStyle = '#ffffff'; ctx.font = `bold ${Math.max(11, rad * 0.42)}px 'Noto Sans JP', sans-serif`;
   ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(0, 1, 0, 1)'; ctx.shadowBlur = 5;
   ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
   ctx.fillText(ch.role, x, y + rad + 16);
+
+  if (ch.isAwaken) {
+    const badgeY = y - rad - 8;
+    ctx.font = `bold ${Math.max(9, rad * 0.33)}px 'Rajdhani', sans-serif`;
+    const bW = ctx.measureText("覚醒中").width + 8;
+    const bH = 14;
+
+    ctx.save();
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ff5500';
+    ctx.fillStyle = '#ff5500';
+    rr(x - bW/2, badgeY - bH/2, bW, bH, 3); ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText("覚醒中", x, badgeY);
+    ctx.textBaseline = 'baseline';
+  }
+
   ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 }
 
 function drawNote(n) {
   const x = n.nx * W, y = n.ny * H;
   const sel = selected && selected.id === n.id;
-  
   ctx.font = "12px 'Noto Sans JP', sans-serif";
   const tw = ctx.measureText(n.text).width + 12;
   const th = 22;
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 2;
-  
   ctx.fillStyle = sel ? 'rgba(0, 238, 102, 0.9)' : 'rgba(34, 41, 34, 0.85)';
   ctx.strokeStyle = sel ? '#ffffff' : '#4a5a4a';
   ctx.lineWidth = 1.5;
-  rr(x - tw/2, y - th/2, tw, th, 4);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
+  rr(x - tw/2, y - th/2, tw, th, 4); ctx.fill(); ctx.stroke(); ctx.restore();
 
   ctx.fillStyle = sel ? '#000000' : '#c8d8c0';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(n.text, x, y);
 }
 
@@ -1190,25 +1413,18 @@ function draw() {
     const px = bx + bw * 0.175, py = by + bh * 0.15; const pw = bw * 0.65, ph = bh * 0.7;
     ctx.fillStyle = '#1a6a30'; rr(px, py, pw, ph, 3); ctx.fill();
     ctx.strokeStyle = '#00ee66'; ctx.lineWidth = 2.5; rr(px, py, pw, ph, 3); ctx.stroke();
-    ctx.fillStyle = 'rgba(0,255,100,0.35)'; rr(px + pw * 0.15, py + ph * 0.14, pw * 0.7, ph * 0.72, 2); ctx.fill();
 
     const rx = W * 0.544, ry = H * 0.167; const rw = W * 0.235, rh = H * 0.271;
     ctx.fillStyle = '#505a50'; rr(rx, ry, rw, rh, 5); ctx.fill();
     ctx.strokeStyle = '#404a40'; ctx.lineWidth = 2; rr(rx, ry, rw, rh, 5); ctx.stroke();
-
     ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.fill();
-    ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.094, ry + rh * 0.077, rw * 0.375, rh * 0.423, 4); ctx.stroke();
-
     ctx.fillStyle = '#3a4a3a'; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.fill();
-    ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1.5; rr(rx + rw * 0.531, ry + rh * 0.115, rw * 0.375, rh * 0.731, 4); ctx.stroke();
-
-    ctx.fillStyle = '#4a5a4a'; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.fill();
-    ctx.strokeStyle = '#3a4a3a'; ctx.lineWidth = 1; rr(rx + rw * 0.125, ry + rh * 0.015, rw * 0.313, rh * 0.215, 3); ctx.stroke();
   }
 
-  // 矢印
   arrows.forEach(a => {
-    if (a.arrowType === 'follow') {
+    if (a.arrowType === 'route') {
+      drawRoute(a.points, a.team);
+    } else if (a.arrowType === 'follow') {
       const sCh = chars.find(c => c.id === a.startCharId);
       const eCh = chars.find(c => c.id === a.endCharId);
       if (sCh && eCh) {
@@ -1223,15 +1439,40 @@ function draw() {
     }
   });
 
-  if (arrowDrag) { drawArrow(arrowDrag.x1, arrowDrag.y1, arrowDrag.x2, arrowDrag.y2, arrowDrag.arrowType, true, false, false, arrowDrag.team, false); }
+  if (arrowDrag) { 
+    drawArrow(arrowDrag.x1, arrowDrag.y1, arrowDrag.x2, arrowDrag.y2, arrowDrag.arrowType, true, false, false, arrowDrag.team, false); 
+  }
 
-  // キャラクターとメモ
+  if (activeRoutePoints && startChar) {
+    const tempPoints = activeRoutePoints.map(p => ({ nx: p.nx, ny: p.ny }));
+    drawRoute(tempPoints, startChar.team);
+  }
+
   chars.forEach(drawChar);
   notes.forEach(drawNote);
 }
 
+function undo() {
+  if (undoStack.length === 0 || isPlaying) return;
+  redoStack.push(createSnapshot());
+  const snap = undoStack.pop();
+  restoreSnapshot(snap);
+}
+
+function redo() {
+  if (redoStack.length === 0 || isPlaying) return;
+  undoStack.push(createSnapshot());
+  const snap = redoStack.pop();
+  restoreSnapshot(snap);
+}
+
 window.addEventListener('resize', resize);
-resize();
+window.onload = function() {
+  currentStage = 'training';
+  resize();
+  resetSeekbar(); // 起動時にバーの初期設定
+  draw();
+};
 </script>
 </body>
 </html>
